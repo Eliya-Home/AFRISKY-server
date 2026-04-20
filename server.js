@@ -2,21 +2,14 @@ import express from "express";
 import cors from "cors";
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import axios from "axios";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ===============================
-// 🔗 CONNECT DATABASE
-mongoose.connect("WEKA_MONGODB_URL")
-.then(()=>console.log("✅ MongoDB connected"))
-.catch(err=>console.log(err));
+// ================= DATABASE
+mongoose.connect("WEKA_MONGODB_URL");
 
-// ===============================
-// 👤 USER MODEL
 const User = mongoose.model("User", {
     name: String,
     email: String,
@@ -24,84 +17,64 @@ const User = mongoose.model("User", {
     role: String
 });
 
-// ===============================
-// 🔐 REGISTER
-app.post("/api/register", async (req, res) => {
-
-    const { name, email, password, role } = req.body;
-
-    const hashed = await bcrypt.hash(password, 10);
-
-    const user = new User({ name, email, password: hashed, role });
-
-    await user.save();
-
-    res.json({ message: "User created" });
+const Booking = mongoose.model("Booking", {
+    user: String,
+    route: String,
+    seats: Array,
+    total: Number,
+    status: String
 });
 
-// ===============================
-// 🔑 LOGIN
+// ================= AUTH
+app.post("/api/register", async (req, res) => {
+    const { name, email, password, role } = req.body;
+    const hash = await bcrypt.hash(password, 10);
+
+    await new User({ name, email, password: hash, role }).save();
+
+    res.json({ message: "Registered" });
+});
+
 app.post("/api/login", async (req, res) => {
 
-    const { email, password } = req.body;
-
-    const user = await User.findOne({ email });
-
+    const user = await User.findOne({ email: req.body.email });
     if (!user) return res.json({ error: "User not found" });
 
-    const ok = await bcrypt.compare(password, user.password);
-
+    const ok = await bcrypt.compare(req.body.password, user.password);
     if (!ok) return res.json({ error: "Wrong password" });
 
-    const token = jwt.sign({ id: user._id }, "secret");
+    res.json(user);
+});
 
-    res.json({
-        token,
-        role: user.role,
-        name: user.name
+// ================= FLIGHTS (MOCK + REAL READY)
+app.get("/api/flights", (req, res) => {
+
+    res.json([
+        { name:"Air Tanzania", from:"DAR", to:"NBO", price:150000, time:"2h" },
+        { name:"Kenya Airways", from:"DAR", to:"NBO", price:180000, time:"1h 45m" }
+    ]);
+});
+
+// ================= BOOKING
+app.post("/api/book", async (req, res) => {
+
+    const booking = new Booking({
+        user: req.body.user,
+        route: req.body.route,
+        seats: req.body.seats,
+        total: req.body.total,
+        status: "PAID"
     });
+
+    await booking.save();
+
+    res.json({ message: "Booked", booking });
 });
 
-// ===============================
-// ✈️ FLIGHTS (UNCHANGED)
-app.get("/api/flights", async (req, res) => {
-
-    try {
-
-        const { from, to } = req.query;
-
-        const response = await axios.get(
-            "https://test.api.amadeus.com/v2/shopping/flight-offers",
-            {
-                headers: { Authorization: "Bearer YOUR_TOKEN" },
-                params: {
-                    originLocationCode: from || "DAR",
-                    destinationLocationCode: to || "NBO",
-                    departureDate: "2026-05-01",
-                    adults: 1
-                }
-            }
-        );
-
-        let flights = response.data.data.map(f => {
-
-            let s = f.itineraries[0].segments[0];
-
-            return {
-                name: f.validatingAirlineCodes[0],
-                from: s.departure.iataCode,
-                to: s.arrival.iataCode,
-                price: parseInt(f.price.total * 2500),
-                time: s.duration
-            };
-        });
-
-        res.json(flights);
-
-    } catch {
-        res.json([]);
-    }
+// ================= GET BOOKINGS
+app.get("/api/bookings", async (req, res) => {
+    const data = await Booking.find();
+    res.json(data);
 });
 
-// ===============================
-app.listen(3000, () => console.log("✅ SERVER RUNNING"));
+app.listen(3000, ()=>console.log("✅ SERVER RUNNING"));
